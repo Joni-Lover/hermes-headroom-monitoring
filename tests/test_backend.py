@@ -49,6 +49,45 @@ class BackendTests(unittest.TestCase):
         fallback = api.SnapshotStore(fetch=lambda url: b"OK" if url.endswith("/livez") else json.dumps(data).encode()).snapshot()
         self.assertEqual(fallback["summary"]["tokens_after"], 793)
 
+    def test_counter_gaps_preserve_baselines_within_epoch(self):
+        cases = [
+            ("compression", "requests_compressed"),
+            ("compression", "tool_schema_tokens_saved"),
+            ("codex_ws", "tokens_saved"),
+        ]
+        for section, key in cases:
+            for missing in (None, "invalid"):
+                with self.subTest(section=section, key=key, missing=missing):
+                    api = load()
+                    now = [0.0]
+                    current = stats()
+                    original = current["summary"][section][key]
+                    store = api.SnapshotStore(fetch=lambda url: b"OK" if url.endswith("/livez") else json.dumps(current).encode(), clock=lambda: now[0])
+                    store.snapshot()
+                    current["summary"][section][key] = missing
+                    now[0] += 5.1
+                    self.assertEqual(len(store.snapshot()["history"]), 2)
+                    current["summary"][section][key] = original + 1
+                    now[0] += 5.1
+                    self.assertEqual(len(store.snapshot()["history"]), 3)
+                    current["summary"][section][key] = original - 1
+                    now[0] += 5.1
+                    self.assertEqual(len(store.snapshot()["history"]), 1)
+
+    def test_detected_reset_rebases_absent_optional_counters(self):
+        api = load()
+        now = [0.0]
+        current = [stats()]
+        store = api.SnapshotStore(fetch=lambda url: b"OK" if url.endswith("/livez") else json.dumps(current[0]).encode(), clock=lambda: now[0])
+        store.snapshot()
+        current[0] = stats(requests=1, before=100, saved=20)
+        current[0]["summary"]["codex_ws"] = None
+        now[0] += 5.1
+        self.assertEqual(len(store.snapshot()["history"]), 1)
+        current[0]["summary"]["codex_ws"] = {"tokens_saved": 1}
+        now[0] += 5.1
+        self.assertEqual(len(store.snapshot()["history"]), 2)
+
     def test_auxiliary_counter_reset_also_clears_history(self):
         api = load()
         now = [0.0]
@@ -59,6 +98,19 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(len(store.snapshot()["history"]), 2)
         current[0]["summary"]["codex_ws"]["tokens_saved"] = 1
         now[0] += 5.1
+        self.assertEqual(len(store.snapshot()["history"]), 1)
+
+    def test_missing_counter_gap_still_clears_history_on_subsequent_drop(self):
+        api = load()
+        now = [0.0]
+        current = [stats()]
+        store = api.SnapshotStore(fetch=lambda url: b"OK" if url.endswith("/livez") else json.dumps(current[0]).encode(), clock=lambda: now[0])
+        store.snapshot()
+        now[0] += 5.1
+        current[0]["summary"]["codex_ws"] = None
+        self.assertEqual(len(store.snapshot()["history"]), 2)
+        now[0] += 5.1
+        current[0]["summary"]["codex_ws"] = {"tokens_saved": 500}
         self.assertEqual(len(store.snapshot()["history"]), 1)
 
     def test_package_registration_does_not_register_tools_or_hooks(self):

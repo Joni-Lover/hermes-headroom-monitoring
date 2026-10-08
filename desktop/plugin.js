@@ -129,7 +129,7 @@ const MESSAGES = {
     hero_explanation: 'Attributed savings with dialogue-level accounting. Re-compressing the same context may not increase this counter; this is not the sum of reductions across all requests.',
     metric_input_plus_savings: 'Input + attributed savings',
     metric_accumulated_input: 'Accumulated input',
-    metric_savings_share: 'Savings / attributed input',
+    metric_savings_share: 'Savings / tokens before optimization',
     hero_footer: 'Input tokens · entire proxy, not current session',
     row_compressed_all: 'Compressed / total requests',
     row_avg_compressed: 'Average for compressed',
@@ -171,7 +171,7 @@ const MESSAGES = {
     chip_tip: 'Headroom · overall input token savings across entire proxy, not current session. Open overview.',
     chip_aria: (label) => `Headroom: ${label}. Entire proxy. Open overview`,
     trend_empty: 'Waiting for first two snapshots to graph.',
-    trend_aria: (p0, pN, ceiling) => `Attributed savings / accumulated input: from ${p0} to ${pN}; scale from 0 to ${ceiling} percent`,
+    trend_aria: (p0, pN, ceiling) => `Attributed savings / tokens before optimization: from ${p0} to ${pN}; scale from 0 to ${ceiling} percent`,
     trend_point_title: (time, pct, reqs, before, saved) => `${time} · ${pct} · ${reqs} requests · before ${before} · saved ${saved}`,
     trend_share_scale: (ceiling) => `Attributed share · 0–${ceiling}%`,
     reasons_empty_count: (c) => `${c} uncompressed requests; no reasons provided.`,
@@ -188,6 +188,11 @@ const MESSAGES = {
       small_request: 'Small request',
       cache_hit: 'Cache hit',
       disabled: 'Compression disabled',
+      compression_disabled: 'Compression disabled',
+      no_compressible_content: 'No compressible content',
+      ratio_too_high: 'Compression ratio too high',
+      no_content: 'No content',
+      skipped: 'Compression skipped',
       no_savings: 'No savings',
       unsupported: 'Unsupported',
       passthrough: 'Passthrough',
@@ -223,7 +228,7 @@ const MESSAGES = {
     hero_explanation: 'Учтённая экономия с атрибуцией по диалогу. Повторное сжатие одного контекста может не увеличивать этот счётчик; это не сумма сокращений всех запросов.',
     metric_input_plus_savings: 'Вход + учтённая экономия',
     metric_accumulated_input: 'Накопленный вход',
-    metric_savings_share: 'Экономия / учётный вход',
+    metric_savings_share: 'Экономия / база до оптимизации',
     hero_footer: 'Входные токены · весь прокси, не текущая сессия',
     row_compressed_all: 'Сжатые / все запросы',
     row_avg_compressed: 'Среднее по сжатым',
@@ -265,7 +270,7 @@ const MESSAGES = {
     chip_tip: 'Headroom · общая экономия входных токенов всего прокси, не текущей сессии. Открыть обзор.',
     chip_aria: (label) => `Headroom: ${label}. Весь прокси. Открыть обзор`,
     trend_empty: 'Ждём первых двух снимков для графика.',
-    trend_aria: (p0, pN, ceiling) => `Учтённая экономия / накопленный вход: от ${p0} до ${pN}; шкала от 0 до ${ceiling} процентов`,
+    trend_aria: (p0, pN, ceiling) => `Учтённая экономия / база до оптимизации: от ${p0} до ${pN}; шкала от 0 до ${ceiling} процентов`,
     trend_point_title: (time, pct, reqs, before, saved) => `${time} · ${pct} · ${reqs} запросов · до ${before} · сохранено ${saved}`,
     trend_share_scale: (ceiling) => `Учётная доля · 0–${ceiling}%`,
     reasons_empty_count: (c) => `${c} запросов без сжатия; причины не предоставлены.`,
@@ -282,6 +287,11 @@ const MESSAGES = {
       small_request: 'Небольшой запрос',
       cache_hit: 'Попадание в кэш',
       disabled: 'Сжатие отключено',
+      compression_disabled: 'Сжатие отключено',
+      no_compressible_content: 'Нет содержимого для сжатия',
+      ratio_too_high: 'Слишком высокий коэффициент сжатия',
+      no_content: 'Нет содержимого',
+      skipped: 'Сжатие пропущено',
       no_savings: 'Без выигрыша',
       unsupported: 'Не поддерживается',
       passthrough: 'Без преобразования',
@@ -379,16 +389,21 @@ const CSS = `
 `;
 
 function readScope() {
-  const connection = host.state.connectionId?.get() ?? 'legacy';
+  const connection = host.state.connectionId?.get() ?? null;
   const profile = host.state.profile.get();
+  // The SDK supplies the active owner for a draft, but null for an unresolved
+  // or ambiguous focused session. Never replace that null with active scope.
   const owner = host.state.focusedSessionOwner?.get();
-  const focusedProfile = owner?.profile ?? host.state.focusedSessionProfile?.get() ?? profile;
-  const focusedConnection = owner?.connectionId ?? connection;
-  return { connection, profile, focusedProfile, focusedConnection, compatible: connection === focusedConnection && profile === focusedProfile };
+  const focusedProfile = owner?.profile ?? null;
+  const focusedConnection = owner?.connectionId ?? null;
+  const confirmed = [connection, profile, focusedConnection, focusedProfile]
+    .every(value => typeof value === 'string' && value.trim().length > 0);
+  return { connection, profile, focusedProfile, focusedConnection,
+    compatible: confirmed && connection === focusedConnection && profile === focusedProfile };
 }
 
 function sameScope(a, b) {
-  return a.connection === b.connection && a.profile === b.profile && a.focusedConnection === b.focusedConnection && a.focusedProfile === b.focusedProfile && b.compatible;
+  return a.compatible && b.compatible && a.connection === b.connection && a.profile === b.profile && a.focusedConnection === b.focusedConnection && a.focusedProfile === b.focusedProfile;
 }
 
 function useSnapshot(ctx) {

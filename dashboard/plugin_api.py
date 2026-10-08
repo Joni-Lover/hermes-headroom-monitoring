@@ -162,7 +162,11 @@ class SnapshotStore:
         if any(value < self.previous_counters[key] for key, value in counters.items()
                if key in self.previous_counters):
             self.history.clear()
-        self.previous_counters = counters
+            # A confirmed reset starts a new epoch; absent counters from the
+            # old epoch must not cause a second reset when they return.
+            self.previous_counters.clear()
+        # Preserve last known values across optional-metric gaps in this epoch.
+        self.previous_counters.update(counters)
         self.history.append({"sampled_at": sampled_at, **{k: summary[k] for k in
             ("api_requests", "tokens_before", "tokens_saved", "compression_pct_overall")}})
         self.history[:] = self.history[-120:]

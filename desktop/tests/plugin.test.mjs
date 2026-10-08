@@ -99,6 +99,81 @@ test('accounting labels distinguish attributed savings, wire reductions and subs
   resetLocaleState();
 });
 
+test('savings share and chart use the before-optimization base, not accumulated input, in EN and RU', () => {
+  const { JSDOM } = require('jsdom');
+  for (const locale of ['en', 'ru']) {
+    resetLocaleState();
+    ctx.storage.set('locale', locale);
+    const dom = new JSDOM(render());
+    try {
+      const isRu = locale === 'ru';
+      const metrics = [...dom.window.document.querySelectorAll('.hrm-hero .hrm-grid > div')];
+      const label = index => metrics[index].querySelector('.hrm-label').textContent;
+      const value = index => metrics[index].querySelector('.hrm-value').textContent;
+      const count = n => new Intl.NumberFormat(isRu ? 'ru-RU' : 'en-US').format(n);
+      assert.equal(label(0), isRu ? 'Вход + учтённая экономия' : 'Input + attributed savings');
+      assert.equal(value(0), count(10000));
+      assert.equal(label(1), isRu ? 'Накопленный вход' : 'Accumulated input');
+      assert.equal(value(1), count(7600));
+      assert.equal(label(2), isRu ? 'Экономия / база до оптимизации' : 'Savings / tokens before optimization');
+      assert.equal(value(2), '24%'); // savings / after would be 31.6%, not 24%
+      const aria = dom.window.document.querySelector('svg').getAttribute('aria-label');
+      assert.match(aria, isRu ? /Учтённая экономия \/ база до оптимизации: от 24% до 24%/ : /Attributed savings \/ tokens before optimization: from 24% to 24%/);
+      assert.doesNotMatch(aria, /accumulated input|накопленный вход/i);
+    } finally {
+      dom.window.close();
+      resetLocaleState();
+    }
+  }
+});
+
+test('all backend uncompressed reasons have EN and RU labels with counts and unknown fallback', async () => {
+  const backend = await readFile(new URL('../../dashboard/plugin_api.py', import.meta.url), 'utf8');
+  const reasonLiteral = backend.match(/UNCOMPRESSED_REASONS = frozenset\(\(([\s\S]*?)\)\)/);
+  assert.ok(reasonLiteral, 'backend reason allowlist must be discoverable');
+  const reasonKeys = [...reasonLiteral[1].matchAll(/"([^"]+)"/g)].map(m => m[1]);
+  const labels = {
+    prefix_frozen: ['Cacheable prefix preserved', 'Сохранён кешируемый префикс'],
+    size_floor: ['Below minimum size', 'Ниже минимального размера'],
+    no_savings: ['No savings', 'Без выигрыша'],
+    compressor_noop: ['No change after compression', 'Без изменений после обработки'],
+    cache_hit: ['Cache hit', 'Попадание в кэш'],
+    passthrough: ['Passthrough', 'Без преобразования'],
+    disabled: ['Compression disabled', 'Сжатие отключено'],
+    below_threshold: ['Below compression threshold', 'Ниже порога сжатия'],
+    compression_disabled: ['Compression disabled', 'Сжатие отключено'],
+    no_compressible_content: ['No compressible content', 'Нет содержимого для сжатия'],
+    error: ['Compression error', 'Ошибка сжатия'],
+    ratio_too_high: ['Compression ratio too high', 'Слишком высокий коэффициент сжатия'],
+    no_content: ['No content', 'Нет содержимого'],
+    skipped: ['Compression skipped', 'Сжатие пропущено']
+  };
+  assert.deepEqual(Object.keys(labels).sort(), reasonKeys.slice().sort());
+  const reasons = Object.fromEntries(reasonKeys.map((key, i) => [key, i + 1]));
+  reasons.future_reason = 99;
+  const { JSDOM } = require('jsdom');
+  for (const [index, locale] of ['en', 'ru'].entries()) {
+    resetLocaleState();
+    ctx.storage.set('locale', locale);
+    const dom = new JSDOM(render('pane', { ...snapshot, summary: { ...summary, uncompressed_requests: reasons } }));
+    try {
+      const details = [...dom.window.document.querySelectorAll('details')].find(n => n.querySelector('summary').textContent === (locale === 'ru' ? 'Почему запросы не сжаты' : 'Why requests were not compressed'));
+      assert.ok(details);
+      const rows = [...details.querySelectorAll('.hrm-row')];
+      assert.equal(rows.length, reasonKeys.length + 1);
+      reasonKeys.forEach((key, i) => {
+        assert.equal(rows[i].querySelector('span').textContent, labels[key][index], key);
+        assert.equal(rows[i].querySelector('strong').textContent, String(i + 1), key);
+      });
+      assert.equal(rows.at(-1).querySelector('span').textContent, 'future_reason');
+      assert.equal(rows.at(-1).querySelector('strong').textContent, '99');
+    } finally {
+      dom.window.close();
+      resetLocaleState();
+    }
+  }
+});
+
 test('visible selector Auto/English/Русский is rendered and accessible', () => {
   resetLocaleState();
   const html = render();
@@ -209,6 +284,88 @@ test('key includes host and focused profile', () => {
   render();
   assert.ok(options.queryKey.includes('haos'));
   assert.ok(options.queryKey.includes('default'));
+});
+
+for (const [label, owner] of [
+  ['null/ambiguous', null], ['undefined', undefined], ['empty object', {}],
+  ['missing connection', { profile: 'default' }],
+  ['missing profile', { connectionId: 'haos' }],
+  ['blank connection', { connectionId: '', profile: 'default' }],
+  ['blank profile', { connectionId: 'haos', profile: '' }]
+]) {
+  test(`${label} focusedSessionOwner is fail-closed even with cached metrics`, async () => {
+    resetLocaleState();
+    const previous = state.focusedSessionOwner;
+    try {
+      state.focusedSessionOwner = atom(owner);
+      const html = render();
+      assert.equal(options.enabled, false);
+      assert.ok(!html.includes('$'));
+      const before = calls.length;
+      await assert.rejects(options.queryFn, /Headroom scope changed/);
+      assert.equal(calls.length, before);
+    } finally {
+      state.focusedSessionOwner = previous;
+    }
+  });
+}
+
+test('missing owner capability is fail-closed on an older SDK', () => {
+  resetLocaleState();
+  const previous = state.focusedSessionOwner;
+  try {
+    delete state.focusedSessionOwner;
+    const html = render();
+    assert.equal(options.enabled, false);
+    assert.ok(!html.includes('$'));
+  } finally {
+    state.focusedSessionOwner = previous;
+  }
+});
+
+test('missing active connection cannot be confirmed by a legacy owner', () => {
+  resetLocaleState();
+  const previousConnection = state.connectionId;
+  const previousOwner = state.focusedSessionOwner;
+  try {
+    delete state.connectionId;
+    state.focusedSessionOwner = atom({ connectionId: 'legacy', profile: 'default' });
+    const html = render();
+    assert.equal(options.enabled, false);
+    assert.ok(!html.includes('$'));
+  } finally {
+    state.connectionId = previousConnection;
+    state.focusedSessionOwner = previousOwner;
+  }
+});
+
+test('explicit active owner remains enabled for a draft/no-focused-session', () => {
+  resetLocaleState();
+  render();
+  assert.equal(options.enabled, true);
+});
+
+test('unresolved owner invalidates an in-flight response before it reaches cache', async () => {
+  resetLocaleState();
+  render();
+  const fn = options.queryFn;
+  const previousRest = ctx.rest;
+  const previousOwner = state.focusedSessionOwner;
+  let release;
+  try {
+    ctx.rest = () => new Promise(resolve => { release = resolve; });
+    const pending = fn();
+    assert.equal(typeof release, 'function');
+    state.focusedSessionOwner = atom(null);
+    release(snapshot);
+    await assert.rejects(pending, /Headroom scope changed/);
+    const html = render();
+    assert.equal(options.enabled, false);
+    assert.ok(!html.includes('$'));
+  } finally {
+    ctx.rest = previousRest;
+    state.focusedSessionOwner = previousOwner;
+  }
 });
 
 test('foreign focused host is fail-closed and hides financial data', () => {

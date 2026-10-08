@@ -263,10 +263,110 @@ test('accounting labels do not confuse subscription bills, global savings and re
   const cleanup=h.mount();
   await settle();
   const t=text(h.render());
-  for (const label of ['Tracked savings', 'cumulative input', 'subscription', 'wire context', 'Weighted average']) {
+  for (const label of ['Tracked savings / tokens before optimization', 'Cumulative input tokens', 'subscription', 'wire context', 'Weighted average']) {
     assert.ok(t.includes(label), label);
   }
   cleanup.forEach(fn=>fn());
+});
+
+test('savings hints and chart denominator use tokens before optimization in EN and RU', async () => {
+  for (const locale of ['en', 'ru']) {
+    const h = harness(async () => fixture(), { localStorage: { 'headroom-monitor:locale': locale } });
+    h.render();
+    const cleanup = h.mount();
+    await settle();
+    try {
+      const page = h.render();
+      const card = label => nodes(page, 'div').find(n => n.props.className?.startsWith('hrm-metric') && text(n.children[0]) === label);
+      const isRu = locale === 'ru';
+      const count = value => new Intl.NumberFormat(isRu ? 'ru-RU' : 'en-US').format(value);
+      assert.equal(text(nodes(card(isRu ? 'До сжатия' : 'Before compression'), 'strong')[0]), count(1000));
+      const after = card(isRu ? 'После сжатия' : 'After compression');
+      assert.equal(text(nodes(after, 'strong')[0]), count(600));
+      assert.match(text(after), isRu ? /Накопленные входные токены/ : /Cumulative input tokens/);
+      const saved = card(isRu ? 'Сэкономлено токенов' : 'Tokens saved');
+      assert.equal(text(nodes(saved, 'p')[0]), isRu ? 'Учтённая экономия / база до оптимизации: 40%' : 'Tracked savings / tokens before optimization: 40%');
+      const aria = nodes(page, 'svg')[0].props['aria-label'];
+      assert.match(aria, isRu ? /экономия \/ база до оптимизации/ : /savings \/ tokens before optimization/);
+      assert.doesNotMatch(aria, /cumulative input|накопленный вход/i);
+      assert.doesNotMatch(text(saved), /66[.,]7%/); // savings / after would be the wrong denominator
+    } finally {
+      cleanup.forEach(fn => fn());
+    }
+  }
+});
+
+test('compression cost card never presents total cost savings share as compression-only savings in EN and RU', async () => {
+  for (const locale of ['en', 'ru']) {
+    const data = fixture();
+    Object.assign(data.summary, { cost_with_usd: .7, compression_saved_usd: .24, provider_cache_discount_usd: .06, cost_savings_pct: 30 });
+    const h = harness(async () => data, { localStorage: { 'headroom-monitor:locale': locale } });
+    h.render();
+    const cleanup = h.mount();
+    await settle();
+    try {
+      const page = h.render();
+      const label = locale === 'ru' ? 'Оценка экономии от сжатия' : 'Estimated compression savings';
+      const card = nodes(page, 'div').find(n => n.props.className?.startsWith('hrm-metric') && text(n.children[0]) === label);
+      assert.ok(card);
+      const money = new Intl.NumberFormat(locale === 'ru' ? 'ru-RU' : 'en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 4 });
+      assert.equal(text(nodes(card, 'strong')[0]), money.format(.24));
+      assert.doesNotMatch(text(card), /30%|24%|of cost| стоимости/);
+      const cacheLabel = locale === 'ru' ? 'Скидка кэша провайдера' : 'Provider cache discount';
+      const cache = nodes(page, 'div').find(n => n.props.className?.startsWith('hrm-metric') && text(n.children[0]) === cacheLabel);
+      assert.equal(text(nodes(cache, 'strong')[0]), money.format(.06));
+    } finally {
+      cleanup.forEach(fn => fn());
+    }
+  }
+});
+
+test('all backend uncompressed reasons have EN and RU labels with counts and unknown fallback', async () => {
+  const backend = fs.readFileSync(path.join(root, 'plugin_api.py'), 'utf8');
+  const reasonLiteral = backend.match(/UNCOMPRESSED_REASONS = frozenset\(\(([\s\S]*?)\)\)/);
+  assert.ok(reasonLiteral, 'backend reason allowlist must be discoverable');
+  const reasonKeys = [...reasonLiteral[1].matchAll(/"([^"]+)"/g)].map(m => m[1]);
+  const labels = {
+    prefix_frozen: ['Cacheable prefix preserved', 'Сохранён кешируемый префикс'],
+    size_floor: ['Below minimum size', 'Ниже минимального размера'],
+    no_savings: ['No savings', 'Нет выигрыша'],
+    compressor_noop: ['No change after processing', 'Без изменений после обработки'],
+    cache_hit: ['Cache hit', 'Попадание в кэш'],
+    passthrough: ['Passthrough', 'Без обработки'],
+    disabled: ['Compression disabled', 'Сжатие отключено'],
+    below_threshold: ['Below threshold', 'Ниже порога'],
+    compression_disabled: ['Compression disabled', 'Сжатие отключено'],
+    no_compressible_content: ['No compressible content', 'Нет содержимого для сжатия'],
+    error: ['Compression error', 'Ошибка сжатия'],
+    ratio_too_high: ['Compression ratio too high', 'Слишком высокий коэффициент сжатия'],
+    no_content: ['No content', 'Нет содержимого'],
+    skipped: ['Compression skipped', 'Сжатие пропущено']
+  };
+  assert.deepEqual(Object.keys(labels).sort(), reasonKeys.slice().sort());
+  for (const [index, locale] of ['en', 'ru'].entries()) {
+    const data = fixture();
+    data.summary.uncompressed_requests = Object.fromEntries(reasonKeys.map((key, i) => [key, i + 1]));
+    data.summary.uncompressed_requests.future_reason = 99;
+    const h = harness(async () => data, { localStorage: { 'headroom-monitor:locale': locale } });
+    h.render();
+    const cleanup = h.mount();
+    await settle();
+    try {
+      const reasons = nodes(h.render(), 'dl')[0];
+      const rows = reasons.children;
+      assert.equal(rows.length, reasonKeys.length + 1);
+      reasonKeys.forEach((key, i) => {
+        const label = nodes(rows[i], 'dt')[0];
+        assert.equal(text(label.children[0]), labels[key][index], key);
+        assert.equal(text(nodes(rows[i], 'dd')[0]), String(i + 1), key);
+        assert.ok(text(label).includes(key), 'technical reason key remains available');
+      });
+      assert.equal(text(nodes(rows.at(-1), 'dt')[0].children[0]), 'future_reason');
+      assert.equal(text(nodes(rows.at(-1), 'dd')[0]), '99');
+    } finally {
+      cleanup.forEach(fn => fn());
+    }
+  }
 });
 
 test('small ratios use a readable chart scale and upstream anomalies stay marked (EN default)', async () => {
