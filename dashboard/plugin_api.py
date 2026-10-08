@@ -152,7 +152,7 @@ class SnapshotStore:
                 "error": "Headroom unavailable"}
         try:
             summary, agents = normalize(json.loads(raw))
-        except (ValueError, TypeError, KeyError):
+        except (ValueError, TypeError, KeyError, RecursionError):
             return {"available": False, "sampled_at": sampled_at, "scope": "proxy",
                 "summary": {}, "agents": [], "history": list(self.history),
                 "error": "Invalid Headroom stats"}
