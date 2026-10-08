@@ -69,7 +69,29 @@ hermes plugins enable headroom-monitor
 
 The Desktop frontend is a separate client-side extension. Installing the backend on a remote gateway does **not** install files on your computer.
 
-On the **Desktop computer**, obtain a local checkout of this repository. From its root, copy the plain ESM entry point into the Desktop plugin directory:
+#### Managed installation (Recommended for remote backend)
+
+Use the managed package flow so Hermes Desktop tracks package origin, attaches an update marker, and refreshes the frontend automatically:
+
+1. In Hermes Desktop, navigate to **Capabilities → Plugins** (or open the install dialog).
+2. Click **Install from Git** (or enter the repository shorthand `Joni-Lover/hermes-headroom-monitoring` / URL `https://github.com/Joni-Lover/hermes-headroom-monitoring.git`).
+3. Select the **Desktop** target and confirm installation.
+   - Alternatively, open the one-click deep link: [Install in Hermes Desktop](hermes://plugin/install?repo=Joni-Lover/hermes-headroom-monitoring&enable=1).
+4. Enable **Headroom · Proxy Monitor** under **Capabilities → Plugins** (or **Settings → Plugins**).
+5. Connect to the Hermes backend/profile where `headroom-monitor` is enabled.
+
+When updates are published, managed package copies refresh from source on **Capabilities → Plugins → Rescan** or when updating packages.
+
+#### Unified package on local backend
+
+If Hermes Desktop runs on the **same machine** as the Hermes backend where `headroom-monitor` is installed under `${HERMES_HOME}/plugins/headroom-monitor`:
+- Electron automatically discovers the unified package's `desktop/plugin.js` and materializes it into `$HERMES_HOME/desktop-plugins/headroom-monitor/` alongside a `.hermes-package.json` package marker.
+- Run **Reload desktop plugins** or **Rescan** in Desktop to discover it, then toggle **Enable**.
+- Updates to the backend package automatically refresh the Desktop frontend on rescan or restart.
+
+#### Alternative: manual standalone copy
+
+If you manually copy the entry point from a local repository checkout instead of using the managed installer:
 
 ```sh
 mkdir -p "${HERMES_HOME:-$HOME/.hermes}/desktop-plugins/headroom-monitor"
@@ -83,6 +105,8 @@ Then:
 2. If it is not listed yet, run **Reload desktop plugins** from the command palette.
 3. Connect to the Hermes backend/profile where `headroom-monitor` is enabled.
 4. Open **Headroom** from the sidebar or command palette.
+
+> **Manual update requirement:** Directly copying `plugin.js` creates a marker-less standalone plugin without a `.hermes-package.json` manifest. As documented in the [Desktop Plugin SDK](https://hermes-agent.nousresearch.com/docs/developer-guide/desktop-plugin-sdk#one-package-both-sdks), marker-less standalone copies are **never overwritten** by `hermes plugins update` or automatic rescans. When updating the plugin in the future, you must manually repeat this copy step to avoid silently remaining on an outdated frontend.
 
 Neither frontend needs a production npm install or build. Desktop uses the application's React and plugin SDK; the backend uses Hermes' Python environment.
 
