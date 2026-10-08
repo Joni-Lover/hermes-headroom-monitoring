@@ -41,6 +41,8 @@ hermes plugins enable headroom-monitor
 
 The installer also accepts the shorthand `hermes plugins install Joni-Lover/hermes-headroom-monitoring`. Alternatively, enable the installed plugin through **Web Dashboard → Settings → Plugins → Enable**.
 
+> **Restart requirement:** After enabling the plugin, **restart the Hermes dashboard / gateway process** (e.g. `hermes dashboard` or your container service). As documented in the [dashboard extension guide](https://hermes-agent.nousresearch.com/docs/user-guide/features/extending-the-dashboard#plugin-discovery--reload), backend API routes (`dashboard/plugin_api.py`) are mounted once at startup and are not registered dynamically by a runtime rescan. Without a process restart, the Headroom UI page will load but all snapshot API requests will return 404/unavailable.
+
 **The repository name is not the plugin ID:**
 
 | Identifier | Value |
@@ -63,7 +65,7 @@ git clone https://github.com/Joni-Lover/hermes-headroom-monitoring.git \
 hermes plugins enable headroom-monitor
 ```
 
-`HERMES_HOME` selects the target Hermes home; the fallback is `~/.hermes`. For a named profile, use that profile's CLI context and matching home. After enabling, open **Headroom** in the dashboard navigation. Rescan/reload plugins and refresh an already-open dashboard if the page has not appeared.
+`HERMES_HOME` selects the target Hermes home; the fallback is `~/.hermes`. For a named profile, use that profile's CLI context and matching home. After enabling, restart the serving dashboard/backend process, then open **Headroom** in the dashboard navigation.
 
 ### Install the Hermes Desktop frontend
 
@@ -325,7 +327,7 @@ When contributing, keep `headroom-monitor` consistent across the manifest, direc
 | Symptom | Check |
 | --- | --- |
 | Headroom page is missing | Confirm installation under `plugins/headroom-monitor` and enable it in the serving profile. Rescan/reload plugins and refresh the dashboard. |
-| Snapshot is unavailable | Check that Headroom serves `/livez` and `/stats` at `127.0.0.1:8787` on the **backend machine**, not the browser/Desktop computer. |
+| Snapshot is unavailable (404) | Restart the Hermes dashboard process. Plugin backend routes (`dashboard/plugin_api.py`) are mounted at startup and will return 404 until restarted, even if the frontend page was discovered by a rescan. Also verify Headroom serves `/livez` and `/stats` at `127.0.0.1:8787` on the **backend machine**. |
 | Invalid Headroom stats | Required counters must be finite, non-negative numbers. Inspect the proxy's stats compatibility; the monitor fails closed instead of forwarding malformed data. |
 | Desktop plugin is missing | Copy `desktop/plugin.js` to the **client's** `desktop-plugins/headroom-monitor/plugin.js`, enable it in Desktop settings, and reload Desktop plugins if needed. |
 | Desktop says “Different source” | Activate the connection/profile matching the focused session. Missing ownership support also blocks reads; use a compatible Hermes Desktop release. |
