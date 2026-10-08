@@ -1,0 +1,16 @@
+{
+  "name": "hermes-headroom-monitoring",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Test harness dependencies only; plugin runtime needs no npm install",
+  "scripts": {
+    "test:web": "node --test dashboard/tests/web.test.cjs",
+    "test:desktop": "HERMES_TEST_DEPS=$PWD NODE_NO_WARNINGS=1 node --experimental-vm-modules --test desktop/tests/plugin.test.mjs"
+  },
+  "devDependencies": {
+    "@tanstack/react-query": "^5.0.0",
+    "jsdom": "^26.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

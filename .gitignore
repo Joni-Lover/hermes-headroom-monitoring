@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+node_modules/
+.test-deps/
+.env
+*.log
+verification-*.json
+**/visual-*.png
+**/visual-evidence.json
