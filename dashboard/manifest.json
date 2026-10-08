@@ -3,7 +3,7 @@
   "label": "Headroom",
   "description": "Global Headroom proxy compression statistics",
   "icon": "BarChart3",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "tab": {"path": "/headroom-monitor", "position": "after:analytics"},
   "slots": ["sidebar", "header-right"],
   "entry": "index.js",
