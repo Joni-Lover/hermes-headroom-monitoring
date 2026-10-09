@@ -67,6 +67,19 @@ function render(id = 'pane', data = snapshot) {
   return html;
 }
 
+test('Gemini metrics render independently on Desktop in both languages', () => {
+  for (const locale of ['en', 'ru']) {
+    resetLocaleState(); ctx.storage.set('locale', locale);
+    const data = {...snapshot, summary: {...summary, gemini: {enabled: true, patch_version: '1.1.0', requests: 4, wire_tokens_before: 1000, wire_tokens_after: 100, wire_tokens_saved: 900, wire_compression_pct: 90, ccr_guard_restored_payloads: 2, excluded_payload_bytes: 123, passthrough_requests: 1, no_savings_requests: 0}}};
+    const html = render('pane', data);
+    assert.ok(html.includes(locale === 'en' ? 'Gemini compression' : 'Компрессия Gemini'));
+    assert.ok(html.includes('90%')); assert.ok(html.includes('1.1.0'));
+    assert.ok(html.includes(locale === 'en' ? 'not provider billing' : 'не биллинг провайдера'));
+  }
+  resetLocaleState();
+  assert.ok(!render().includes('Gemini compression'));
+});
+
 test('contract and supported five surfaces with localized metadata', () => {
   resetLocaleState();
   assert.equal(module.namespace.default.id, 'headroom-monitor');

@@ -148,6 +148,12 @@ Preferences are stored locally for this plugin on each client. The remote gatewa
 | Responses HTTP/WS counter | `summary.codex_ws.tokens_saved`; compression-unit processing, including repeated decisions in HTTP Responses and WebSocket handling. Not unique tokens or completed requests. |
 | Agent rows | `agent_usage.agents`; source-defined recent request-log wire reductions, independent of global attributed savings. |
 
+### Gemini wire diagnostics (optional)
+
+Version 1.1.0 displays the optional top-level `gemini_compression` block on both Web Dashboard and Desktop. An enabled block shows patch version, requests, wire tokens before/after/saved, wire reduction percentage, CCR-restored payloads, excluded payload bytes, passthrough and no-savings requests. Older proxies remain supported: absent or disabled diagnostics are hidden and missing numeric fields remain **—**.
+
+These are **local wire estimates since proxy start**, not Google's billed token counts. They are independent of the existing global attributed totals and agent rows. Do not add Gemini counters to global savings or sum diagnostic sublayers. The monitor only displays diagnostics: it does not install or enable a Gemini compression patch.
+
 ### Do not sum independent counters
 
 Global savings use conversation-attributed/novel reductions where identity is available. Agent rows describe reductions in transmitted request context; repeated compression may appear there without increasing global attributed savings. Agent totals can therefore differ from or exceed the global total.

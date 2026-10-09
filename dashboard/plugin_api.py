@@ -110,8 +110,28 @@ def normalize(data):
         "provider_cache_discount_usd": cost.get("provider_cache_discount_usd"),
         "cost_savings_pct": cost.get("savings_pct"),
         "uncompressed_requests": counts(s.get("uncompressed_requests"), reasons=True)}
+    gemini = mapping(data.get("gemini_compression"))
+    summary["gemini"] = {
+        "enabled": gemini.get("enabled") is True,
+        "patch_version": text(gemini.get("patch_version")),
+        "requests": number(gemini.get("requests")),
+        "wire_tokens_before": number(gemini.get("wire_tokens_before")),
+        "wire_tokens_after": number(gemini.get("wire_tokens_after")),
+        "wire_tokens_saved": number(gemini.get("wire_tokens_saved")),
+        "ccr_guard_restored_payloads": number(gemini.get("ccr_guard_restored_payloads")),
+        "excluded_payload_bytes": number(gemini.get("excluded_payload_bytes")),
+        "passthrough_requests": number(gemini.get("passthrough_requests")),
+        "no_savings_requests": number(gemini.get("no_savings_requests")),
+    }
+    if summary["gemini"]["wire_tokens_before"] is not None and summary["gemini"]["wire_tokens_saved"] is not None:
+        summary["gemini"]["wire_compression_pct"] = (
+            summary["gemini"]["wire_tokens_saved"] / summary["gemini"]["wire_tokens_before"] * 100.0
+            if summary["gemini"]["wire_tokens_before"] else 0.0
+        )
+    else:
+        summary["gemini"]["wire_compression_pct"] = None
     for key in summary:
-        if key not in ("mode", "primary_model", "uncompressed_requests"):
+        if key not in ("mode", "primary_model", "uncompressed_requests", "gemini"):
             summary[key] = number(summary[key])
     agents = []
     rows = mapping(data.get("agent_usage")).get("agents", [])

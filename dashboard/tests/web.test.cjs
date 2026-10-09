@@ -134,6 +134,23 @@ function fixture() {
   };
 }
 
+test('Gemini wire metrics render independently in EN/RU and stay hidden on older proxies', async () => {
+  for (const locale of ['en', 'ru']) {
+    const data = fixture();
+    data.summary.gemini = {enabled: true, patch_version: '1.1.0', requests: 4, wire_tokens_before: 1000, wire_tokens_after: 100, wire_tokens_saved: 900, wire_compression_pct: 90, ccr_guard_restored_payloads: 2, excluded_payload_bytes: 123, passthrough_requests: 1, no_savings_requests: 0};
+    const h = harness(async () => data, {localStorage: {'headroom-monitor:locale': locale}});
+    h.render(); const cleanups = h.mount(); await settle();
+    const content = text(h.render());
+    assert.ok(content.includes(locale === 'en' ? 'Gemini compression' : 'Компрессия Gemini'));
+    assert.ok(content.includes('90%')); assert.ok(content.includes('1.1.0'));
+    assert.ok(content.includes(locale === 'en' ? 'not provider billing' : 'не биллинг провайдера'));
+    cleanups.forEach(fn => fn());
+  }
+  const h = harness(); h.render(); const cleanups = h.mount(); await settle();
+  assert.ok(!text(h.render()).includes('Gemini compression'));
+  cleanups.forEach(fn => fn());
+});
+
 test('prebuilt manifest and actual registry use supported mounts', () => {
   assert.ok(fs.existsSync(path.join(root,'manifest.json')), 'dashboard manifest must exist');
   const m = JSON.parse(fs.readFileSync(path.join(root,'manifest.json')));

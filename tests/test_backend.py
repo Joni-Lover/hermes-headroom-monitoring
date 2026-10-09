@@ -320,6 +320,64 @@ class BackendTests(unittest.TestCase):
         self.assertNotIn("SUPERSECRET", json.dumps(result))
         self.assertEqual(result["error"], "Headroom unavailable")
 
+    def test_gemini_partial_and_untrusted_metrics_are_safe(self):
+        api = load()
+        for block in [None, [], {}, {"enabled": "true"},
+                      {"enabled": True, "wire_tokens_before": 100, "wire_tokens_after": 50},
+                      {"enabled": True, "wire_tokens_before": 100, "wire_tokens_saved": -1},
+                      {"enabled": True, "wire_tokens_before": 100, "wire_tokens_saved": float("inf")}]:
+            with self.subTest(block=block):
+                data = stats()
+                data["gemini_compression"] = block
+                result = api.SnapshotStore(fetch=lambda url: b"OK" if url.endswith("/livez") else json.dumps(data).encode()).snapshot()
+                self.assertTrue(result["available"])
+                self.assertIsNone(result["summary"]["gemini"]["wire_compression_pct"])
+                self.assertEqual(result["summary"]["tokens_saved"], 200)
+        data = stats()
+        data["gemini_compression"] = {"enabled": True, "wire_tokens_before": 0, "wire_tokens_saved": 0, "unknown": "SECRET"}
+        result = api.SnapshotStore(fetch=lambda url: b"OK" if url.endswith("/livez") else json.dumps(data).encode()).snapshot()
+        self.assertEqual(result["summary"]["gemini"]["wire_compression_pct"], 0)
+        self.assertNotIn("SECRET", json.dumps(result))
+
+    def test_gemini_compression_stats_are_forwarded_when_present(self):
+        api = load()
+        data = stats()
+        data["gemini_compression"] = {
+            "enabled": True,
+            "patch_version": "1.1.0",
+            "requests": 4,
+            "wire_tokens_before": 102562,
+            "wire_tokens_after": 590,
+            "wire_tokens_saved": 101972,
+            "ccr_guard_restored_payloads": 0,
+            "excluded_payload_bytes": 0,
+            "passthrough_requests": 0,
+            "no_savings_requests": 0,
+        }
+        result = api.SnapshotStore(fetch=lambda url: b"OK" if url.endswith("/livez") else json.dumps(data).encode()).snapshot()
+        g = result["summary"]["gemini"]
+        self.assertTrue(g["enabled"])
+        self.assertEqual(g["patch_version"], "1.1.0")
+        self.assertEqual(g["requests"], 4)
+        self.assertEqual(g["wire_tokens_before"], 102562)
+        self.assertEqual(g["wire_tokens_after"], 590)
+        self.assertEqual(g["wire_tokens_saved"], 101972)
+        self.assertEqual(g["wire_compression_pct"], 101972 / 102562 * 100.0)
+        self.assertEqual(g["ccr_guard_restored_payloads"], 0)
+        self.assertEqual(g["excluded_payload_bytes"], 0)
+        self.assertEqual(g["passthrough_requests"], 0)
+        self.assertEqual(g["no_savings_requests"], 0)
+
+    def test_gemini_compression_absent_or_disabled_is_safe(self):
+        api = load()
+        data = stats()
+        result = api.SnapshotStore(fetch=lambda url: b"OK" if url.endswith("/livez") else json.dumps(data).encode()).snapshot()
+        g = result["summary"]["gemini"]
+        self.assertFalse(g["enabled"])
+        self.assertIsNone(g["patch_version"])
+        self.assertIsNone(g["requests"])
+        self.assertIsNone(g["wire_compression_pct"])
+
     def test_normalized_proxy_snapshot_preserves_separate_counters(self):
         api = load()
         calls = []
