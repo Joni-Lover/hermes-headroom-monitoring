@@ -29,6 +29,14 @@
       offline: 'Offline',
       errUnavailable: 'Headroom is unavailable. Retrying in 5s.',
       errNetwork: 'Cannot reach Headroom. Retrying in 5s.',
+      diagnosticHttp: code => 'Hermes API: HTTP ' + code + '.',
+      diagnosticAuth: 'Dashboard authentication was rejected. Reopen the add-on from Home Assistant.',
+      diagnosticMissing: 'The snapshot API route is missing. Restart the serving dashboard after enabling the backend plugin.',
+      diagnosticNetwork: 'Browser network failure or blocked request to the Hermes API.',
+      diagnosticJson: 'Invalid JSON response from the Hermes API.',
+      diagnosticSdk: 'Dashboard SDK fetchJSON is unavailable. Reload the dashboard.',
+      diagnosticTimeout: 'The Hermes API did not respond within 10 seconds.',
+      diagnosticSnapshot: 'The Hermes API returned an invalid snapshot.',
       noticeLastGood: ' Showing last good snapshot, not fresh metrics.',
       noticeNoZeroes: ' Metrics are not replaced with zeroes.',
       staleNotice: 'Stale data: snapshot older than 15s. Awaiting update.',
@@ -126,6 +134,14 @@
       offline: 'Не в сети',
       errUnavailable: 'Headroom недоступен. Повторная проверка через 5 с.',
       errNetwork: 'Нет связи с Headroom. Повторная проверка через 5 с.',
+      diagnosticHttp: code => 'API Hermes: HTTP ' + code + '.',
+      diagnosticAuth: 'Авторизация dashboard отклонена. Заново откройте аддон из Home Assistant.',
+      diagnosticMissing: 'Маршрут API снимков отсутствует. После включения backend-плагина перезапустите обслуживающий dashboard.',
+      diagnosticNetwork: 'Сетевая ошибка браузера или заблокированный запрос к API Hermes.',
+      diagnosticJson: 'API Hermes вернул некорректный JSON.',
+      diagnosticSdk: 'Метод fetchJSON в SDK dashboard недоступен. Обновите dashboard.',
+      diagnosticTimeout: 'API Hermes не ответил за 10 секунд.',
+      diagnosticSnapshot: 'API Hermes вернул некорректный снимок.',
       noticeLastGood: ' Показан последний успешный снимок, не новые значения.',
       noticeNoZeroes: ' Метрики не заменяются нулями.',
       staleNotice: 'Данные устарели: снимок старше 15 с. Ожидаем обновление.',
@@ -297,6 +313,7 @@
     const requestController = controller;
     let deadline;
     try {
+      if (typeof SDK.fetchJSON !== 'function') throw Object.assign(new Error(), {monitorReason: 'Sdk'});
       const data = await Promise.race([
         SDK.fetchJSON(ENDPOINT, { signal: requestController.signal }),
         new Promise((_, reject) => {
@@ -305,11 +322,18 @@
         })
       ]);
       if (epoch !== generation) return;
-      if (!valid(data)) throw new Error('invalid snapshot');
-      if (data.available) emit({ data, loading: false, error: null });
-      else emit({ loading: false, error: 'unavailable' });
-    } catch (_) {
-      if (epoch === generation) emit({ loading: false, error: 'network' });
+      if (!valid(data)) throw Object.assign(new Error(), {monitorReason: 'Snapshot'});
+      if (data.available) emit({ data, loading: false, error: null, httpStatus: null, failureReason: null });
+      else emit({ loading: false, error: 'unavailable', httpStatus: null, failureReason: null });
+    } catch (error) {
+      // Do not surface raw response bodies or exception text: they may contain secrets.
+      const legacyStatus = /^\s*(\d{3}):/.exec(typeof error?.message === 'string' ? error.message : '');
+      const status = error?.status ?? (legacyStatus ? Number(legacyStatus[1]) : null);
+      const httpStatus = Number.isInteger(status) && status >= 400 && status <= 599 ? status : null;
+      const failureReason = requestController.signal.aborted ? 'Timeout' :
+        ['Sdk', 'Snapshot'].includes(error?.monitorReason) ? error.monitorReason :
+        error?.name === 'SyntaxError' ? 'Json' : 'Network';
+      if (epoch === generation) emit({ loading: false, error: 'network', httpStatus, failureReason });
     } finally {
       clearTimeout(deadline);
       if (epoch === generation && listeners.size) {
@@ -490,7 +514,12 @@
       ),
       errorMsg ? h('div', { className: 'hrm-notice', role: 'alert' },
         errorMsg,
-        data ? t.noticeLastGood : t.noticeNoZeroes
+        data ? t.noticeLastGood : t.noticeNoZeroes,
+        current.httpStatus ? h('p', null,
+          t.diagnosticHttp(current.httpStatus), ' ',
+          [401, 403].includes(current.httpStatus) ? t.diagnosticAuth :
+          current.httpStatus === 404 ? t.diagnosticMissing : null
+        ) : current.failureReason ? h('p', null, t['diagnostic' + current.failureReason]) : null
       ) : null,
       status(current, t) === t.staleData ? h('div', { className: 'hrm-notice', role: 'status' }, t.staleNotice) : null,
       !data ? h('div', { className: 'hrm-panel', role: 'status' }, current.loading ? t.loadingStats : t.unavailableStats) :

@@ -1,5 +1,5 @@
 name: headroom-monitor
 kind: standalone
-version: "1.1.0"
+version: "1.1.1"
 description: "Read-only global Headroom proxy metrics for Hermes dashboard and desktop."
 author: Joni-Lover

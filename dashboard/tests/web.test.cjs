@@ -134,6 +134,38 @@ function fixture() {
   };
 }
 
+test('request failures expose safe HTTP diagnostics instead of hiding the cause', async () => {
+  for (const locale of ['en', 'ru']) {
+    for (const status of [401, 403, 404, 502]) {
+      const error = Object.assign(new Error('Bearer secret-token {"password":"private"}'), {status, body: 'private-response'});
+      const h = harness(async () => {throw error;}, {localStorage: {'headroom-monitor:locale': locale}});
+      h.render(); h.mount(); await settle();
+      const rendered = text(h.render());
+      assert.match(rendered, new RegExp(`HTTP ${status}`));
+      assert.doesNotMatch(rendered, /secret-token|private-response|password/);
+      await h.tick();
+      assert.match(text(h.render()), new RegExp(`HTTP ${status}`));
+    }
+  }
+});
+
+test('transport, malformed JSON, and missing SDK failures are distinguished safely', async () => {
+  for (const [error, expected] of [
+    [new TypeError('Failed to fetch Bearer private-token'), 'Browser network failure'],
+    [new SyntaxError('Unexpected token < private-response'), 'Invalid JSON response'],
+    [new Error('404: private-response'), 'HTTP 404']
+  ]) {
+    const h = harness(async () => {throw error;});
+    h.render(); h.mount(); await settle();
+    const rendered = text(h.render());
+    assert.match(rendered, new RegExp(expected));
+    assert.doesNotMatch(rendered, /private-token|private-response/);
+  }
+  const h = harness(undefined, {sdkExtra: {fetchJSON: undefined}});
+  h.render(); h.mount(); await settle();
+  assert.match(text(h.render()), /Dashboard SDK fetchJSON is unavailable/);
+});
+
 test('Gemini wire metrics render independently in EN/RU and stay hidden on older proxies', async () => {
   for (const locale of ['en', 'ru']) {
     const data = fixture();
